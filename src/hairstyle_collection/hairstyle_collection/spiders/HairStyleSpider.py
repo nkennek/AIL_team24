@@ -2,6 +2,7 @@
 # -*- coding:utf-8 -*-
 
 import re
+import os
 
 import scrapy
 from scrapy.spiders import CrawlSpider, Rule
@@ -21,9 +22,9 @@ class HairStyleSpider(CrawlSpider):
         r'/sln.*',
         r'/trend.*',
         r'/doc.*',
+        r'/CSP.*'
     ]
     list_deny = [
-        r'/CSP.*'
     ]
     rules = (
         #巡回ルール
@@ -37,12 +38,34 @@ class HairStyleSpider(CrawlSpider):
         ),
     )
 
-    hairstyle_urls = r'https://imgbp\.hotp\.jp/CSP/IMG_SRC/.*\.(jpg|png)'
+    hairstyle_url_re = r'https://imgbp\.hotp\.jp/CSP/IMG_SRC/.*\.(jpg|png)'
 
     def parse_imgs(self, response):
         hxs = scrapy.Selector(response)
 
         item = HairstyleCollectionItem()
         image_urls = hxs.xpath('//img/@src').extract()
-        item['image_urls'] = list(filter(lambda url: re.match( self.hairstyle_urls, url), image_urls))
+        item['image_urls'] = self.parse_img_urls(image_urls)
         yield item
+
+    def parse_img_urls(self, urls):
+        """
+        urlのパース
+
+        - ドメイン名とパスで人物の写っている写真に限定
+        - サイズ指定のないurlに変換
+        """
+
+        def sanitize(url):
+            base_path, filename = os.path.dirname(url), os.path.basename(url)
+            filename_base, ext = os.path.splitext(filename)
+            if '_' in filename_base:
+                filename_base = filename_base.split('_')[0]
+
+            filename = filename_base + ext
+
+            return os.path.join(base_path, filename)
+
+
+        hairstyle_images = list(filter(lambda url: re.match( self.hairstyle_url_re, url), urls))
+        return list(map(sanitize, hairstyle_images))
