@@ -15,7 +15,7 @@ from hairstyle_collection.items import HairstyleCollectionItem
 class HairStyleSpider(CrawlSpider):
     name = 'HairStyleSpider'
     allowed_domains = ['beauty.hotpepper.jp']
-    start_urls = ["https://beauty.hotpepper.jp/svcSA/"]
+    start_urls = ["https://beauty.hotpepper.jp/catalog/ladys"]
 
     list_allow = [
         r'/catalog/.*',
@@ -25,6 +25,7 @@ class HairStyleSpider(CrawlSpider):
         r'/CSP.*'
     ]
     list_deny = [
+        r'/catalog/mens.*'
     ]
     rules = (
         #巡回ルール
