@@ -6,7 +6,9 @@ GOOGLE_CLOUD_VISION_API_URL = 'https://vision.googleapis.com/v1/images:annotate?
 
 import base64
 import json
+import os
 
+import pandas as pd
 import requests
 import urllib
 
@@ -49,3 +51,38 @@ def goog_cloud_vision(img_path, kind='LABEL_DETECTION'):
         print("err: \n{}".format(response.json()))
 
     return response.status_code, response.json()
+
+
+def parse_result(res, name=None):
+    descriptions = res[1]['responses'][0]['labelAnnotations']
+    descriptions_pd = pd.DataFrame(descriptions).set_index('description').score
+    if name is not None:
+        descriptions_pd = descriptions_pd.rename(name)
+    return descriptions_pd
+
+
+if __name__ == '__main__':
+    import time
+    from tqdm import tqdm
+
+    data_dir = '../../data/download_all/'
+    files = os.listdir(data_dir)
+
+    result_all = None
+
+    for f in tqdm(files):
+        try:
+            filepath = data_dir + f
+            response = goog_cloud_vision(filepath)
+            desc = parse_result(response, name=f)
+            if result_all is None:
+                result_all = desc
+                continue
+
+            result_all = pd.concat([result_all, desc], axis = 1)
+            time.sleep(0.5)
+        except KeyboardInterrupt:
+            break
+
+    result_all = result_all.T.fillna(0)
+    result_all.to_csv('goog_cloud_vision_labels.csv')
