@@ -23,6 +23,7 @@ class FaceSegmentor(object):
             caffe.TEST
         )
         self.input_shape = (3, 500, 500)
+        self.batch_size = 10 # 仕様
 
     def __call__(self, X):
         """
@@ -30,6 +31,10 @@ class FaceSegmentor(object):
         """
 
         print('{}:starting predict'.format(dt.now()))
+
+        if len(X) > self.batch_size:
+            # predict with minibatch
+            return self.batch_predict(X)
 
         if isinstance(X, list):
             X = np.array(X)
@@ -50,6 +55,26 @@ class FaceSegmentor(object):
         )
 
         return X, masks, masked_images
+
+    def batch_predict(self, X):
+        batch_num = len(X) // self.batch_size + 1
+        img_all, mask_all, masked_all = None, None, None
+        for i in range(batch_num):
+            if i*self.batch_size >= len(X):
+                continue
+            
+            x = X[i*self.batch_size : (i+1)*self.batch_size]
+            imgs, masks, masked_images = self(x)
+            if img_all is None:
+                img_all = imgs
+                mask_all = masks
+                masked_all = masked_images
+            else:
+                img_all = np.append(img_all, imgs, axis=0)
+                mask_all = np.append(mask_all, masks, axis=0)
+                masked_all = np.append(masked_all, masked_images, axis=0)
+
+        return img_all, mask_all, masked_all
 
     def forward(self, X, preprocessed=True):
         """
