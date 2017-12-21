@@ -4,6 +4,8 @@ import chainer
 import chainer.functions as F
 from chainer import Variable
 
+from rec_loss_kernel import calc_rec_loss, initalize_naive_kernel
+
 
 class ImagePool():
     def __init__(self, pool_size):
@@ -54,9 +56,10 @@ class Updater(chainer.training.StandardUpdater):
         self._buffer_x = ImagePool(50 * self._batch_size)
         self._buffer_y = ImagePool(50 * self._batch_size)
         self.init_alpha = self.get_optimizer('gen_g').alpha
+        self.rec_loss_kernel = initalize_naive_kernel(self._image_size, self.xp)
 
     def loss_func_rec_l1(self, x_out, t):
-        return F.mean_absolute_error(x_out, t)
+        return calc_rec_loss(x_out, t, self.rec_loss_kernel)
 
     def loss_func_adv_dis_fake(self, y_fake):
         target = Variable(
