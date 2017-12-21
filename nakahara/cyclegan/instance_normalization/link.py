@@ -1,24 +1,22 @@
 import numpy
-
 from chainer import configuration
 from chainer import cuda
 from chainer import initializers
 from chainer import link
 from chainer import variable
 
-from .function import fixed_instance_normalization
 from .function import InstanceNormalizationFunction
+from .function import fixed_instance_normalization
 
 
 class InstanceNormalization(link.Link):
-
     """Instance normalization layer on outputs of convolution functions.
 
     It is recommended to use this normalization instead of batch normalization
     in generative models of what we call Style Transfer.
     """
 
-    def __init__(self, size, decay=0.9, eps=2e-5, dtype=numpy.float32,
+    def __init__(self, size, decay=0.9, eps=1e-5, dtype=numpy.float32,
                  valid_test=False, use_gamma=True, use_beta=True,
                  initial_gamma=None, initial_beta=None):
         super(InstanceNormalization, self).__init__()
@@ -55,7 +53,7 @@ class InstanceNormalization(link.Link):
         else:
             with cuda.get_device_from_id(self._device_id):
                 gamma = variable.Variable(self.xp.ones(
-                    self.avg_mean.shape, dtype=x.dtype))
+                    x.data.shape[1], dtype=x.dtype))
         if hasattr(self, 'beta'):
             beta = self.beta
         elif beta_ is not None:
@@ -63,7 +61,7 @@ class InstanceNormalization(link.Link):
         else:
             with cuda.get_device_from_id(self._device_id):
                 beta = variable.Variable(self.xp.zeros(
-                    self.avg_mean.shape, dtype=x.dtype))
+                    x.data.shape[1], dtype=x.dtype))
 
         decay = self.decay
         if (not configuration.config.train) and self.valid_test:
