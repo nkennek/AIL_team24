@@ -1,7 +1,9 @@
 import argparse
-from datetime import datetime as dt
 import os
+from datetime import datetime as dt
+
 import matplotlib
+
 matplotlib.use('Agg')
 
 import chainer
@@ -9,7 +11,6 @@ from chainer import serializers
 from chainer import training
 from chainer.training import extensions
 
-import config
 import net
 from dataset import Dataset
 from updater import Updater
@@ -18,8 +19,8 @@ from visualization import visualize
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--root', default=config.datasets_basepath)
-    parser.add_argument('--batch_size', '-b', type=int, default=8)
+    parser.add_argument('--root', default='datasets')
+    parser.add_argument('--batch_size', '-b', type=int, default=1)
     parser.add_argument('--gpu', '-g', type=int, default=0,
                         help='GPU ID (negative value indicates CPU)')
     parser.add_argument('--out', '-o', default='result',
@@ -27,49 +28,47 @@ def main():
     parser.add_argument('--vis_folder', '-e', default='visualization',
                         help='Directory to output the visualization result')
 
-    parser.add_argument('--eval_interval', type=int, default=1000,
-                        help='Interval of evaluating generator')
-
-    parser.add_argument("--learning_rate_g", type=float, default=0.0002,
-                        help="Learning rate for generator")
-    parser.add_argument("--learning_rate_d", type=float, default=0.0002,
-                        help="Learning rate for discriminator")
-
-    parser.add_argument("--load_gen_f_model", default='',
-                        help='load generator model')
-    parser.add_argument("--load_gen_g_model", default='',
-                        help='load generator model')
-    parser.add_argument("--load_dis_x_model", default='',
-                        help='load discriminator model')
-    parser.add_argument("--load_dis_y_model", default='',
-                        help='load discriminator model')
+    parser.add_argument('--learning_rate_g', type=float, default=0.0002,
+                        help='Learning rate for generator')
+    parser.add_argument('--learning_rate_d', type=float, default=0.0002,
+                        help='Learning rate for discriminator')
 
     parser.add_argument('--gen_class', default='Generator',
                         help='Default generator class')
     parser.add_argument('--dis_class', default='Discriminator',
                         help='Default discriminator class')
+    parser.add_argument('--load_gen_f_model', default='',
+                        help='load generator model')
+    parser.add_argument('--load_gen_g_model', default='',
+                        help='load generator model')
+    parser.add_argument('--load_dis_x_model', default='',
+                        help='load discriminator model')
+    parser.add_argument('--load_dis_y_model', default='',
+                        help='load discriminator model')
     parser.add_argument('--norm', default='instance',
-                        help='normalization type. instance or batch')
+                        choices=['instance', 'batch'])
 
-    parser.add_argument("--lambda1", type=float, default=10.0,
-                        help='lambda for reconstruction loss')
-    parser.add_argument("--lambda2", type=float, default=1.0,
-                        help='lambda for adversarial loss')
+    parser.add_argument('--lambda_A', type=float, default=10.0,
+                        help='weight for cycle loss (A -> B -> A)')
+    parser.add_argument('--lambda_B', type=float, default=10.0,
+                        help='weight for cycle loss (B -> A -> B)')
 
-    parser.add_argument("--flip", type=int, default=1,
+    # Note that this is different from original implementation
+    parser.add_argument('--lambda_identity', type=float, default=0.0,
+                        help='lambda for l1 loss to stop unnecessary changes')
+
+    parser.add_argument('--flip', type=int, default=1,
                         help='flip images for data augmentation')
-    parser.add_argument("--resize_to", type=int, default=286,
+    parser.add_argument('--resize_to', type=int, default=286,
                         help='resize the image to')
-    parser.add_argument("--crop_to", type=int, default=256,
+    parser.add_argument('--crop_to', type=int, default=256,
                         help='crop the resized image to')
-    parser.add_argument("--load_dataset", default=None,
+    parser.add_argument('--load_dataset', default=None,
                         help='load dataset')
-    parser.add_argument("--discriminator_layer_n", type=int, default=5,
-                        help='number of discriminator layers')
 
-    parser.add_argument("--lrdecay_start", type=float, default=100,
+    parser.add_argument('--lrdecay_start', type=int, default=100,
                         help='anneal the learning rate (by epoch)')
-    parser.add_argument("--lrdecay_period", type=int,
+    parser.add_argument('--lrdecay_period', type=int,
                         default=100, help='period to anneal the learning')
 
     args = parser.parse_args()
@@ -87,19 +86,19 @@ def main():
 
     if args.load_gen_g_model != '':
         serializers.load_npz(args.load_gen_g_model, gen_g)
-        print("Generator G(X->Y) model loaded")
+        print('Generator G(X->Y) model loaded')
 
     if args.load_gen_f_model != '':
         serializers.load_npz(args.load_gen_f_model, gen_f)
-        print("Generator F(Y->X) model loaded")
+        print('Generator F(Y->X) model loaded')
 
     if args.load_dis_x_model != '':
         serializers.load_npz(args.load_dis_x_model, dis_x)
-        print("Discriminator X model loaded")
+        print('Discriminator X model loaded')
 
     if args.load_dis_y_model != '':
         serializers.load_npz(args.load_dis_y_model, dis_y)
-        print("Discriminator Y model loaded")
+        print('Discriminator Y model loaded')
 
     if not os.path.exists(args.vis_folder):
         os.makedirs(args.vis_folder)
@@ -110,7 +109,7 @@ def main():
         gen_f.to_gpu()
         dis_x.to_gpu()
         dis_y.to_gpu()
-        print("use gpu {}".format(args.gpu))
+        print('use gpu {}'.format(args.gpu))
 
     # Setup an optimizer
     def make_optimizer(model, alpha=0.0002, beta1=0.5):
@@ -158,8 +157,9 @@ def main():
         },
         device=args.gpu,
         params={
-            'lambda1': args.lambda1,
-            'lambda2': args.lambda2,
+            'lambda_A': args.lambda_A,
+            'lambda_B': args.lambda_B,
+            'lambda_identity': args.lambda_identity,
             'batch_size': args.batch_size,
             'image_size': args.crop_to,
             'lrdecay_start': args.lrdecay_start,
@@ -167,8 +167,8 @@ def main():
             'dataset': train_A_dataset
         })
 
-    log_interval = (20, 'iteration')
-    model_save_interval = (5000, 'iteration')
+    log_interval = (100, 'iteration')
+    model_save_interval = (10000, 'iteration')
     out = os.path.join(args.out, dt.now().strftime('%m%d_%H%M'))
     trainer = training.Trainer(updater, (
         args.lrdecay_start + args.lrdecay_period, 'epoch'), out=out)
@@ -181,8 +181,9 @@ def main():
     trainer.extend(extensions.snapshot_object(
         dis_y, 'dis_y{.updater.iteration}.npz'), trigger=model_save_interval)
 
-    log_keys = ['epoch', 'iteration', 'gen_g/loss_rec', 'gen_f/loss_rec',
-                'gen_g/loss_gen', 'gen_f/loss_gen', 'dis_x/loss', 'dis_y/loss']
+    log_keys = ['epoch', 'iteration', 'gen_g/loss_cycle', 'gen_f/loss_cycle',
+                'gen_g/loss_id', 'gen_f/loss_id', 'gen_g/loss_gen',
+                'gen_f/loss_gen', 'dis_x/loss', 'dis_y/loss']
     trainer.extend(
         extensions.LogReport(keys=log_keys, trigger=log_interval))
     trainer.extend(extensions.PrintReport(log_keys), trigger=log_interval)
@@ -191,8 +192,9 @@ def main():
     if extensions.PlotReport.available():
         trainer.extend(
             extensions.PlotReport(
-                ['gen_g/loss_rec', 'gen_f/loss_rec', 'gen_g/loss_gen',
-                 'gen_f/loss_gen', 'dis_x/loss', 'dis_y/loss'], 'iteration',
+                ['gen_g/loss_cycle', 'gen_f/loss_cycle', 'gen_g/loss_id',
+                 'gen_f/loss_id', 'gen_g/loss_gen', 'gen_f/loss_gen',
+                 'dis_x/loss', 'dis_y/loss'], 'iteration',
                 trigger=(100, 'iteration'), file_name='loss.png'))
 
     trainer.extend(

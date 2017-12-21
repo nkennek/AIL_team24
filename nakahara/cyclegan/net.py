@@ -1,19 +1,24 @@
-# sys.path.append(os.path.dirname(__file__))
+import functools
 
 import chainer
 import chainer.functions as F
 import chainer.links as L
-from chainer import cuda
 
 from instance_normalization import InstanceNormalization
 
 
-def add_noise(h, sigma=0.2):
-    xp = cuda.get_array_module(h.data)
-    if chainer.config.train:
-        return h + sigma * xp.random.randn(*h.data.shape)
+def get_norm_layer(norm='instance'):
+    # unchecked: init weight of bn
+    if norm == 'batch':
+        norm_layer = functools.partial(L.BatchNormalization, use_gamma=True,
+                                       use_beta=True)
+    elif norm == 'instance':
+        norm_layer = functools.partial(InstanceNormalization, use_gamma=False,
+                                       use_beta=False)
     else:
-        return h
+        raise NotImplementedError(
+            'normalization layer [%s] is not found' % norm)
+    return norm_layer
 
 
 class ResBlock(chainer.Chain):
@@ -24,12 +29,8 @@ class ResBlock(chainer.Chain):
         with self.init_scope():
             self.c0 = L.Convolution2D(ch, ch, 3, 1, 1, initialW=w)
             self.c1 = L.Convolution2D(ch, ch, 3, 1, 1, initialW=w)
-            if norm == 'batch':
-                self.norm0 = L.BatchNormalization(ch)
-                self.norm1 = L.BatchNormalization(ch)
-            elif norm == 'instance':
-                self.norm0 = InstanceNormalization(ch)
-                self.norm1 = InstanceNormalization(ch)
+            self.norm0 = get_norm_layer(norm)(ch)
+            self.norm1 = get_norm_layer(norm)(ch)
 
     def __call__(self, x):
         h = self.c0(x)
@@ -41,14 +42,14 @@ class ResBlock(chainer.Chain):
 
 
 class CBR(chainer.Chain):
-    def __init__(self, ch0, ch1, ksize=3, pad=1, norm='instance', sample='down',
-                 activation=F.relu, dropout=False, noise=False):
+    def __init__(self, ch0, ch1, ksize=3, pad=1, norm='instance',
+                 sample='down', activation=F.relu, dropout=False):
         super(CBR, self).__init__()
         self.activation = activation
         self.dropout = dropout
         self.sample = sample
-        self.noise = noise
         w = chainer.initializers.Normal(0.02)
+        self.use_norm = False if norm is None else True
 
         with self.init_scope():
             if sample == 'down':
@@ -61,30 +62,19 @@ class CBR(chainer.Chain):
                 self.c = L.Convolution2D(ch0, ch1, 5, 1, 2, initialW=w)
             else:
                 self.c = L.Convolution2D(ch0, ch1, ksize, 1, pad, initialW=w)
-            if norm == 'batch':
-                if self.noise:
-                    self.norm = L.BatchNormalization(ch1, use_gamma=False)
-                else:
-                    self.norm = L.BatchNormalization(ch1)
-            elif norm == 'instance':
-                if self.noise:
-                    self.norm = InstanceNormalization(ch1, use_gamma=False)
-                else:
-                    self.norm = InstanceNormalization(ch1)
-            else:
-                raise ValueError('invalid norm parameter for CBR')
+            if self.use_norm:
+                self.norm = get_norm_layer(norm)(ch1)
 
     def __call__(self, x):
-        if self.sample == "down" or self.sample == "none" or self.sample == 'none-9' or self.sample == 'none-7' or self.sample == 'none-5':
+        if self.sample in ['down', 'none', 'none-9', 'none-7', 'none-5']:
             h = self.c(x)
-        elif self.sample == "up":
+        elif self.sample == 'up':
             h = F.unpooling_2d(x, 2, 2, 0, cover_all=False)
             h = self.c(h)
         else:
-            print("unknown sample method %s" % self.sample)
-        h = self.norm(h)
-        if self.noise:
-            h = add_noise(h)
+            print('unknown sample method %s' % self.sample)
+        if self.use_norm:
+            h = self.norm(h)
         if self.dropout:
             h = F.dropout(h)
         if self.activation is not None:
@@ -127,28 +117,25 @@ class Discriminator(chainer.Chain):
         self.n_down_layers = n_down_layers
 
         with self.init_scope():
-            self.c0 = CBR(in_ch, 64, ksize=ksize, pad=pad, norm=norm,
+            self.c0 = CBR(in_ch, 64, ksize=ksize, pad=pad, norm=None,
                           sample='down', activation=F.leaky_relu,
-                          dropout=False, noise=False)
+                          dropout=False)
 
             for i in range(1, n_down_layers):
                 setattr(self, 'c' + str(i),
                         CBR(base, base * 2, ksize=ksize, pad=pad, norm=norm,
-                            sample='down',
-                            activation=F.leaky_relu, dropout=False,
-                            noise=False))
+                            sample='down', activation=F.leaky_relu,
+                            dropout=False))
                 base *= 2
 
             setattr(self, 'c' + str(n_down_layers),
                     CBR(base, base * 2, ksize=ksize, pad=pad, norm=norm,
-                        sample='none',
-                        activation=F.leaky_relu, dropout=False,
-                        noise=False))
+                        sample='none', activation=F.leaky_relu, dropout=False))
             base *= 2
 
             setattr(self, 'c' + str(n_down_layers + 1),
-                    CBR(base, 1, ksize=ksize, pad=pad, norm=norm, sample='none',
-                        activation=None, dropout=False, noise=False))
+                    CBR(base, 1, ksize=ksize, pad=pad, norm=None,
+                        sample='none', activation=None, dropout=False))
 
     def __call__(self, x_0):
         h = self.c0(x_0)

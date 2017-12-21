@@ -13,6 +13,7 @@ from config import datasets_basepath
 
 
 def split_dataset(label, master, test_size=0.1, seed=None, threshold_up=0.7, threshold_down=0.3, file_origin=os.path.join(datasets_basepath, 'download_all')):
+    master = master.loc[pd.Series(master.index, index=master.index).apply(lambda filename: os.path.isfile(os.path.join(file_origin, filename)))]
     pos_files = master[master[label] >= threshold_up].index
     pos_labels = [1]*len(pos_files)
     neg_files = master[master[label] <= threshold_down].index
@@ -40,12 +41,13 @@ if __name__ == '__main__':
 
     parser = argparse.ArgumentParser()
     parser.add_argument('--master', default='goog_cloud_vision_labels.csv')
-    parser.add_argument('--test_size', default=0.1)
+    parser.add_argument('--test_size', type=float, default=0.1)
     parser.add_argument('--random_state', default=1234)
     parser.add_argument('--label', type=str, help='a property to split data with')
+    parser.add_argument('--f', type=str, default=os.path.join(datasets_basepath, 'download_all'), help='a property to split data with')
 
     args = parser.parse_args()
     print(args)
     master = pd.read_csv(args.master, index_col=0)
 
-    split_dataset(args.label, master, args.test_size, args.random_state)
+    split_dataset(args.label, master, args.test_size, args.random_state, file_origin=args.f)

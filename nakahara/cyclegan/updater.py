@@ -41,8 +41,9 @@ class Updater(chainer.training.StandardUpdater):
         self.gen_g, self.gen_f, self.dis_x, self.dis_y = kwargs.pop('models')
         params = kwargs.pop('params')
         super(Updater, self).__init__(*args, **kwargs)
-        self._lambda1 = params['lambda1']
-        self._lambda2 = params['lambda2']
+        self._lambda_A = params['lambda_A']
+        self._lambda_B = params['lambda_B']
+        self._lambda_id = params['lambda_identity']
         self._lrdecay_start = params['lrdecay_start']
         self._lrdecay_period = params['lrdecay_period']
         self._image_size = params['image_size']
@@ -72,9 +73,6 @@ class Updater(chainer.training.StandardUpdater):
             self.xp.full(y_fake.data.shape, 1.0).astype('f'))
         return F.mean_squared_error(y_fake, target)
 
-    def update_learning_schedule(self):
-        pass
-
     def update_core(self):
         opt_g = self.get_optimizer('gen_g')
         opt_f = self.get_optimizer('gen_f')
@@ -83,7 +81,7 @@ class Updater(chainer.training.StandardUpdater):
         self._iter += 1
         if self.is_new_epoch and self.epoch >= self._lrdecay_start:
             decay_step = self.init_alpha / self._lrdecay_period
-            print("lr decay", decay_step)
+            print('lr decay', decay_step)
             if opt_g.alpha > decay_step:
                 opt_g.alpha -= decay_step
             if opt_f.alpha > decay_step:
@@ -99,23 +97,27 @@ class Updater(chainer.training.StandardUpdater):
         y = Variable(self.converter(batch_y, self.device))
 
         x_y = self.gen_g(x)
-        x_y_copy = self._buffer_y.query(x_y.data)
-        x_y_copy = Variable(x_y_copy)
+        x_y_copy = Variable(self._buffer_y.query(x_y.data))
         x_y_x = self.gen_f(x_y)
 
         y_x = self.gen_f(y)
-        y_x_copy = self._buffer_x.query(y_x.data)
-        y_x_copy = Variable(y_x_copy)
+        y_x_copy = Variable(self._buffer_x.query(y_x.data))
         y_x_y = self.gen_g(y_x)
 
         loss_gen_g_adv = self.loss_func_adv_gen(self.dis_y(x_y))
         loss_gen_f_adv = self.loss_func_adv_gen(self.dis_x(y_x))
 
-        loss_cycle_x = self._lambda1 * self.loss_func_rec_l1(x_y_x, x)
-        loss_cycle_y = self._lambda1 * self.loss_func_rec_l1(y_x_y, y)
-        loss_gen = self._lambda2 * loss_gen_g_adv + \
-            self._lambda2 * loss_gen_f_adv + \
-            loss_cycle_x + loss_cycle_y
+        loss_cycle_x = self._lambda_A * self.loss_func_rec_l1(x_y_x, x)
+        loss_cycle_y = self._lambda_B * self.loss_func_rec_l1(y_x_y, y)
+        loss_gen = loss_gen_g_adv + loss_gen_f_adv + loss_cycle_x + loss_cycle_y
+
+        if self._lambda_id > 0:
+            loss_id_x = self._lambda_id * F.mean_absolute_error(x,
+                                                                self.gen_f(x))
+            loss_id_y = self._lambda_id * F.mean_absolute_error(y,
+                                                                self.gen_g(y))
+            loss_gen = loss_gen + loss_id_x + loss_id_y
+
         self.gen_f.cleargrads()
         self.gen_g.cleargrads()
         loss_gen.backward()
@@ -138,7 +140,11 @@ class Updater(chainer.training.StandardUpdater):
 
         chainer.report({'loss': loss_dis_x}, self.dis_x)
         chainer.report({'loss': loss_dis_y}, self.dis_y)
-        chainer.report({'loss_rec': loss_cycle_y}, self.gen_g)
-        chainer.report({'loss_rec': loss_cycle_x}, self.gen_f)
+        chainer.report({'loss_cycle': loss_cycle_y}, self.gen_g)
+        chainer.report({'loss_cycle': loss_cycle_x}, self.gen_f)
         chainer.report({'loss_gen': loss_gen_g_adv}, self.gen_g)
         chainer.report({'loss_gen': loss_gen_f_adv}, self.gen_f)
+
+        if self._lambda_id > 0:
+            chainer.report({'loss_id': loss_id_y}, self.gen_g)
+            chainer.report({'loss_id': loss_id_x}, self.gen_f)
