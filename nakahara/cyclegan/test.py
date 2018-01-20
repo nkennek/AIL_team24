@@ -5,22 +5,14 @@ import os
 
 import chainer.cuda
 from chainer import serializers
-from chainercv.utils import read_image
-try:
-    from chainercv.utils import write_image
-    available = True
-except ImportError:
-    from write_image import write_image
-    available = False
 from chainercv.transforms import resize
+from chainercv.utils import read_image
+from chainercv.utils import write_image
 
-from dataset import Dataset
 import net
-
+from dataset import Dataset
 
 if __name__ == '__main__':
-    if not available:
-        print('`write_image` not in this chainercv\n')
     parser = argparse.ArgumentParser()
     parser.add_argument('--root', default='datasets')
     parser.add_argument('--batch_size', '-b', type=int, default=8)
@@ -28,21 +20,16 @@ if __name__ == '__main__':
                         help='GPU ID (negative value indicates CPU)')
     parser.add_argument('--gen_class', '-c', default='Generator',
                         help='Default generator class')
-    parser.add_argument("--load_gen_model", default='',
+    parser.add_argument('--load_gen_model', default='',
                         help='load generator model')
     parser.add_argument('--out', '-o', default='output',
                         help='saved file name')
-    parser.add_argument("--resize_to", type=int, default=256,
+    parser.add_argument('--resize_to', type=int, default=256,
                         help='resize the image to')
-    parser.add_argument("--crop_to", type=int, default=256,
+    parser.add_argument('--crop_to', type=int, default=256,
                         help='crop the resized image to')
-    parser.add_argument("--load_dataset", default=None,
-                        help='load dataset')
-    parser.add_argument("--category", default="A", type=str,
-                        help="select A or B (A/B indicates trainA/B respectively")
     args = parser.parse_args()
     print(args)
-    root = args.root
 
     if args.gpu >= 0:
         chainer.cuda.get_device_from_id(args.gpu).use()
@@ -53,19 +40,14 @@ if __name__ == '__main__':
     gen = getattr(net, args.gen_class)()
 
     if args.load_gen_model != '':
+        print('Loading {:s}..'.format(args.load_gen_model))
         serializers.load_npz(args.load_gen_model, gen)
-        print("Generator F model loaded")
 
     if args.gpu >= 0:
         gen.to_gpu()
-        print("use gpu {}".format(args.gpu))
+        print('use gpu {}'.format(args.gpu))
 
-    if args.load_dataset is None:
-        data_dir = root
-    else:
-        data_dir = os.path.join(root, args.load_dataset)
-    data_dir = os.path.join(data_dir, "train{}".format(args.category.upper()))
-    dataset = Dataset(path=data_dir, resize_to=args.resize_to,
+    dataset = Dataset(path=args.root, resize_to=args.resize_to,
                       crop_to=args.crop_to, flip=False)
 
     iterator = chainer.iterators.SerialIterator(dataset, args.batch_size,
