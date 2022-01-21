@@ -2,7 +2,7 @@ chainer==3.1.0
 chainercv==0.7.0
 cupy==2.0.0
 dlib==19.7.0
-ipython==6.1.0
+ipython==7.16.3
 matplotlib==2.1.0
 numpy==1.13.3
 opencv-python==3.3.0.10
